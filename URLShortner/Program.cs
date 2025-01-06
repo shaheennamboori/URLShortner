@@ -1,6 +1,6 @@
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Http.Extensions;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 using URLShortner.Models;
 using URLShortner.Services;
 
@@ -17,6 +17,22 @@ builder.Services.AddScoped<UrlShorteningService>();
 // Configure DbContext with PostgreSQL connection string
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("url-shortner")));
+
+builder.Services.AddAuthorization();
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(x =>
+    {
+        x.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
+        {
+            IssuerSigningKey = new SymmetricSecurityKey("PleaseKeepThisKeySafelyAndSecurelyThisWillComeInHandy"u8.ToArray()),
+            ValidIssuer = "Identity.localhost",
+            ValidAudience = "localhost",
+            ValidateIssuerSigningKey = true,
+            ValidateLifetime = true,
+            ValidateIssuer = true,
+            ValidateAudience = true
+        };
+    });
 
 var app = builder.Build();
 
@@ -61,6 +77,13 @@ app.MapGet("{shortCode}", async (string shortCode, UrlShorteningService urlServi
 
     return originalUrl is null ? Results.NotFound() : Results.Redirect(originalUrl.LongUrl);
 });
+
+app.MapGet("Protected/{shortCode}", async (string shortCode, UrlShorteningService urlService, ApplicationDbContext applicationDbContext) =>
+{
+    var originalUrl = await applicationDbContext.ShortenedUrls.SingleOrDefaultAsync(x => x.Code == shortCode);
+
+    return originalUrl is null ? Results.NotFound() : Results.Redirect(originalUrl.LongUrl);
+}).RequireAuthorization();
 
 app.UseHttpsRedirection();
 
