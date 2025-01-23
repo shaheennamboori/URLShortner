@@ -1,6 +1,9 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.Caching.StackExchangeRedis;
 using Microsoft.IdentityModel.Tokens;
+using URLShortner;
 using URLShortner.Models;
 using URLShortner.Services;
 
@@ -17,6 +20,8 @@ builder.Services.AddScoped<UrlShorteningService>();
 // Configure DbContext with PostgreSQL connection string
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("url-shortner")));
+ 
+builder.Services.AddStackExchangeRedisCache(options => options.Configuration = builder.Configuration.GetConnectionString("Cache"));
 
 builder.Services.AddAuthorization();
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -41,6 +46,7 @@ if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
+    app.ApplyMigrations();
 }
 
 app.MapPost("shorten", async (string url, UrlShorteningService urlService, ApplicationDbContext dbContext,
@@ -71,9 +77,18 @@ app.MapPost("shorten", async (string url, UrlShorteningService urlService, Appli
     return Results.Ok(shortenedUrl.ShortUrl);
 });
 
-app.MapGet("{shortCode}", async (string shortCode, UrlShorteningService urlService, ApplicationDbContext applicationDbContext) =>
+app.MapGet("{shortCode}", async (string shortCode, UrlShorteningService urlService, IDistributedCache cache, ApplicationDbContext applicationDbContext, CancellationToken ct) =>
 {
-    var originalUrl = await applicationDbContext.ShortenedUrls.SingleOrDefaultAsync(x => x.Code == shortCode);
+    ShortenedUrl? originalUrl = await cache.GetOrCreateAsync(
+        $"urls_{shortCode}", 
+        async () =>
+    {
+        ShortenedUrl? originalUrl = await applicationDbContext.ShortenedUrls.AsNoTracking()
+        .SingleOrDefaultAsync(x => x.Code == shortCode);
+        return originalUrl;
+    },
+        new DistributedCacheEntryOptions() { AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(1)});
+    
 
     return originalUrl is null ? Results.NotFound() : Results.Redirect(originalUrl.LongUrl);
 });

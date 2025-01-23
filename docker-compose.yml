@@ -1,0 +1,26 @@
+services:
+  urlshortner:
+    image: ${DOCKER_REGISTRY-}urlshortner
+    container_name: products.api
+    build:
+      context: .
+      dockerfile: URLShortner/Dockerfile
+    ports:
+    - "5000:5000"
+    - "5001:5001"
+  products.database:
+    image: postgres:latest
+    container_name: products.database
+    environment:
+      - POSTGRES_DB=shortenedUrls
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=Welcome1234
+    volumes:
+      - ./.containers/shortenedUrlsDB:/var/lib/postgressql/data
+    ports:
+      - 5432:5432
+  products.cache:
+    image: redis:latest
+    restart: always
+    ports:
+     - 6379:6379
